@@ -54,6 +54,7 @@ router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
       code: code.trim().toUpperCase(),
       name: name.trim(),
       lecturerId: req.user._id,
+      repId: finalRepIds[0], // for legacy single rep query support
       repIds: finalRepIds
     });
 
@@ -69,12 +70,18 @@ router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
 router.get('/lecturer', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
   try {
     const courses = await Course.find({ lecturerId: req.user._id })
-      .populate('repIds', 'name email inviteCode groupDescription matric');
+      .populate('repIds', 'name email inviteCode groupDescription matric')
+      .populate('repId', 'name email inviteCode groupDescription matric');
 
     // Add derived classIdentifier (joins rep group descriptions)
     const coursesList = courses.map(course => {
       const courseObj = course.toObject();
-      const descriptions = (course.repIds || []).map(r => r.groupDescription || r.name || 'Unnamed Group');
+      let reps = course.repIds || [];
+      if (reps.length === 0 && course.repId) {
+        reps = [course.repId];
+        courseObj.repIds = [course.repId];
+      }
+      const descriptions = reps.map(r => r ? (r.groupDescription || r.name || 'Unnamed Group') : 'Unnamed Group');
       courseObj.classIdentifier = descriptions.join(' & ');
       return courseObj;
     });
@@ -93,9 +100,12 @@ router.get('/student', auth, async (req, res) => {
       return res.status(400).json({ error: 'No representative group linked to this account.' });
     }
 
-    // Find all courses where student's repId is in repIds list
+    // Find all courses where student's repId is in repIds list or equals repId
     const courses = await Course.find({
-      repIds: repId,
+      $or: [
+        { repIds: repId },
+        { repId: repId }
+      ],
       excludedStudents: { $ne: req.user._id } // exclude if student has been kicked out
     }).populate('lecturerId', 'name email');
 
@@ -118,15 +128,20 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    const repIdsList = [...(course.repIds || [])];
+    if (course.repId && !repIdsList.some(id => id.toString() === course.repId.toString())) {
+      repIdsList.push(course.repId);
+    }
+
     // Get all approved students in the course's rep groups
     const students = await User.find({
       role: 'student',
       isApproved: true,
-      repId: { $in: course.repIds }
+      repId: { $in: repIdsList }
     }).select('name matric email repId groupDescription group');
 
     // Also get the representatives since they are also students and take classes
-    const reps = await User.find({ _id: { $in: course.repIds }, role: 'rep' })
+    const reps = await User.find({ _id: { $in: repIdsList }, role: 'rep' })
       .select('name matric email groupDescription group');
     
     // Combine students and reps
@@ -272,6 +287,100 @@ router.post('/:id/reinstate', auth, requireRole(['lecturer', 'hod']), async (req
   } catch (err) {
     console.error('Reinstate student error:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /courses/:id (Lecturer/HOD only) - Update course allocation details
+router.patch('/:id', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
+  try {
+    const { code, name, repIds } = req.body;
+    const course = await Course.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+
+    // Verify ownership
+    if (course.lecturerId.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'hod') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    if (code) course.code = code.trim().toUpperCase();
+    if (name) course.name = name.trim();
+
+    if (repIds && Array.isArray(repIds)) {
+      if (repIds.length === 0) {
+        return res.status(400).json({ error: 'At least one representative group is required.' });
+      }
+
+      // Verify representatives exist
+      const verifiedRepsCount = await User.countDocuments({ _id: { $in: repIds }, role: 'rep' });
+      if (verifiedRepsCount !== repIds.length) {
+        return res.status(404).json({ error: 'One or more representative groups were not found.' });
+      }
+
+      course.repIds = repIds;
+      course.repId = repIds[0]; // legacy fallback
+    }
+
+    await course.save();
+
+    // Populate for response
+    await course.populate('repIds', 'name email inviteCode groupDescription matric');
+    await course.populate('repId', 'name email inviteCode groupDescription matric');
+
+    const courseObj = course.toObject();
+    let reps = course.repIds || [];
+    if (reps.length === 0 && course.repId) {
+      reps = [course.repId];
+      courseObj.repIds = [course.repId];
+    }
+    const descriptions = reps.map(r => r ? (r.groupDescription || r.name || 'Unnamed Group') : 'Unnamed Group');
+    courseObj.classIdentifier = descriptions.join(' & ');
+
+    res.json(courseObj);
+  } catch (err) {
+    console.error('Update course error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /courses/:id (Lecturer/HOD only) - Performs cascade delete of course and all its attendance sessions/records
+router.delete('/:id', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
+  try {
+    const course = await Course.findById(req.params.id);
+    if (!course) {
+      return res.status(404).json({ error: 'Course not found.' });
+    }
+
+    // Verify ownership
+    if (course.lecturerId.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'hod') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    console.log(`[Lecturer Cascade Delete] Deleting Course: ${course.code} (${course._id})`);
+
+    // 1. Delete all attendance records associated with this course
+    const recordDeleteRes = await AttendanceRecord.deleteMany({ courseId: course._id });
+    console.log(`- Deleted ${recordDeleteRes.deletedCount} attendance records`);
+
+    // 2. Delete all attendance sessions associated with this course
+    const sessionDeleteRes = await AttendanceSession.deleteMany({ courseId: course._id });
+    console.log(`- Deleted ${sessionDeleteRes.deletedCount} attendance sessions`);
+
+    // 3. Delete the course record itself
+    await Course.findByIdAndDelete(course._id);
+    console.log(`- Course record deleted successfully.`);
+
+    res.json({
+      message: 'Course and all associated attendance data deleted successfully.',
+      stats: {
+        records: recordDeleteRes.deletedCount,
+        sessions: sessionDeleteRes.deletedCount
+      }
+    });
+  } catch (err) {
+    console.error('Delete course error:', err);
+    res.status(500).json({ error: 'Server error performing course cascade deletion' });
   }
 });
 

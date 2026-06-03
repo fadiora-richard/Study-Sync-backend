@@ -102,7 +102,9 @@ router.post('/submit', auth, async (req, res) => {
 
     // Verify student belongs to this course rep group (any of the allocated rep groups)
     const studentRepId = req.user.role === 'rep' ? req.user._id : req.user.repId;
-    if (!course.repIds || !course.repIds.some(id => id.toString() === studentRepId.toString())) {
+    const hasRepPlural = course.repIds && course.repIds.some(id => id.toString() === studentRepId.toString());
+    const hasRepSingular = course.repId && course.repId.toString() === studentRepId.toString();
+    if (!hasRepPlural && !hasRepSingular) {
       return res.status(403).json({ error: 'You do not belong to any student group for this course.' });
     }
 
@@ -174,6 +176,37 @@ router.post('/submit', auth, async (req, res) => {
     });
   } catch (err) {
     console.error('Submit attendance error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Nullify/Delete an attendance session (Lecturer only)
+router.delete('/session/:id', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
+  try {
+    const session = await AttendanceSession.findById(req.params.id);
+    if (!session) {
+      return res.status(404).json({ error: 'Attendance session not found.' });
+    }
+
+    const course = await Course.findById(session.courseId);
+    if (!course) {
+      return res.status(404).json({ error: 'Associated course not found.' });
+    }
+
+    // Verify ownership
+    if (course.lecturerId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Delete all records linked to this session
+    await AttendanceRecord.deleteMany({ sessionId: session._id });
+
+    // Delete the session itself
+    await AttendanceSession.findByIdAndDelete(session._id);
+
+    res.json({ message: 'Attendance session nullified/deleted successfully.' });
+  } catch (err) {
+    console.error('Nullify attendance session error:', err);
     res.status(500).json({ error: err.message });
   }
 });

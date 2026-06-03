@@ -40,15 +40,22 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
       return res.status(400).json({ error: "Name, matric number, and password are required." });
     }
 
-    if (email) {
+    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
+    const cleanMatric = matric.toUpperCase().trim();
+
+    if (cleanEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
+      if (!emailRegex.test(cleanEmail)) {
         return res.status(400).json({ error: "Invalid email address format." });
+      }
+      const existingEmail = await User.findOne({ email: cleanEmail });
+      if (existingEmail) {
+        return res.status(400).json({ error: "Email already in use." });
       }
     }
 
     // Check if matric already in use
-    const existingMatric = await User.findOne({ matric });
+    const existingMatric = await User.findOne({ matric: cleanMatric });
     if (existingMatric) {
       return res.status(400).json({ error: "Matric number already in use." });
     }
@@ -57,8 +64,8 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
 
     const student = new User({
       name,
-      email: email || undefined,
-      matric,
+      email: cleanEmail,
+      matric: cleanMatric,
       passwordHash: hashed,
       role: "student",
       repId: repId,
@@ -104,10 +111,24 @@ router.patch("/:id/approve", auth, requireRole("rep"), async (req, res) => {
 router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
   try {
     const { name, email, matric } = req.body;
-    if (email) {
+    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
+    const cleanMatric = matric ? matric.toUpperCase().trim() : undefined;
+
+    if (cleanEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
+      if (!emailRegex.test(cleanEmail)) {
         return res.status(400).json({ error: "Invalid email address format." });
+      }
+      const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: req.params.id } });
+      if (existingEmail) {
+        return res.status(400).json({ error: "Email already in use." });
+      }
+    }
+
+    if (cleanMatric) {
+      const existingMatric = await User.findOne({ matric: cleanMatric, _id: { $ne: req.params.id } });
+      if (existingMatric) {
+        return res.status(400).json({ error: "Matric number already in use." });
       }
     }
 
@@ -122,8 +143,8 @@ router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
     }
 
     student.name = name || student.name;
-    student.email = email || student.email;
-    student.matric = matric || student.matric;
+    if (cleanEmail !== undefined) student.email = cleanEmail;
+    if (cleanMatric !== undefined) student.matric = cleanMatric;
 
     await student.save();
     

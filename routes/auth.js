@@ -12,8 +12,9 @@ const JWT_SECRET = process.env.JWT_SECRET;
 router.post('/login', async (req, res) => {
   try {
     const { identifier, password } = req.body;
+    const cleanIdentifier = identifier.includes('@') ? identifier.toLowerCase().trim() : identifier.toUpperCase().trim();
     
-    const user = await User.findOne({ $or: [{ matric: identifier }, { email: identifier }] });
+    const user = await User.findOne({ $or: [{ matric: cleanIdentifier }, { email: cleanIdentifier }] });
     if (!user) return res.status(400).json({ message: 'User not found' });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
@@ -45,17 +46,20 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ message: "Matric number is required." });
     }
 
-    if (email) {
+    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
+    const cleanMatric = matric ? matric.toUpperCase().trim() : undefined;
+
+    if (cleanEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email)) {
+      if (!emailRegex.test(cleanEmail)) {
         return res.status(400).json({ message: "Invalid email address format." });
       }
-      const emailExists = await User.findOne({ email });
+      const emailExists = await User.findOne({ email: cleanEmail });
       if (emailExists) return res.status(400).json({ message: "Email already in use." });
     }
 
-    if (matric) {
-      const matricExists = await User.findOne({ matric });
+    if (cleanMatric) {
+      const matricExists = await User.findOne({ matric: cleanMatric });
       if (matricExists) return res.status(400).json({ message: "Matric number already in use." });
     }
 
@@ -96,8 +100,8 @@ router.post('/signup', async (req, res) => {
 
     const newUser = new User({
       name,
-      email: email || undefined,
-      matric: matric || undefined,
+      email: cleanEmail,
+      matric: cleanMatric,
       passwordHash,
       role,
       repId: userRepId,

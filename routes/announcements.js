@@ -25,7 +25,10 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
       if (req.user.role !== 'admin' && req.user.role !== 'hod' && course.lecturerId.toString() !== req.user._id.toString()) {
         return res.status(403).json({ error: "Forbidden. You do not teach this course." });
       }
-      targetRepIds = course.repIds || [];
+      targetRepIds = [...(course.repIds || [])];
+      if (course.repId && !targetRepIds.some(id => id.toString() === course.repId.toString())) {
+        targetRepIds.push(course.repId);
+      }
     } else if (repId) {
       targetRepIds = [repId];
       // Check authorization based on role
@@ -34,7 +37,13 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
       }
       if (req.user.role === 'lecturer' || req.user.role === 'hod') {
         // Verify lecturer teaches this rep group
-        const course = await Course.findOne({ repIds: repId, lecturerId: req.user._id });
+        const course = await Course.findOne({
+          $or: [
+            { repIds: repId },
+            { repId: repId }
+          ],
+          lecturerId: req.user._id
+        });
         if (!course && req.user.role !== 'admin' && req.user.role !== 'hod') {
           return res.status(403).json({ error: "Forbidden. You do not teach this student group." });
         }
