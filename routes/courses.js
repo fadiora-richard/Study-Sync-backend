@@ -10,28 +10,47 @@ const router = express.Router();
 // Create a new course allocation (Lecturer/HOD only)
 router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
   try {
-    const { code, name, repId } = req.body;
-    if (!code || !name || !repId) {
-      return res.status(400).json({ error: 'Course code, name, and representative ID are required.' });
+    const { code, name, repId, repIds, repMatrics } = req.body;
+    if (!code || !name) {
+      return res.status(400).json({ error: 'Course code and name are required.' });
     }
 
-    // Check if the representative actually exists and is a representative
-    const rep = await User.findOne({ _id: repId, role: 'rep' });
-    if (!rep) {
-      return res.status(404).json({ error: 'Representative group not found.' });
+    let finalRepIds = [];
+
+    // Support multiple inputs (repMatrics, repIds, or legacy single repId)
+    if (repMatrics && Array.isArray(repMatrics)) {
+      const reps = await User.find({ matric: { $in: repMatrics }, role: 'rep' });
+      finalRepIds = reps.map(r => r._id);
+      if (finalRepIds.length === 0) {
+        return res.status(404).json({ error: 'No representatives found matching the provided matric numbers.' });
+      }
+    } else if (repIds && Array.isArray(repIds)) {
+      finalRepIds = repIds;
+    } else if (repId) {
+      finalRepIds = [repId];
     }
 
-    // Verify course uniqueness for this representative group
-    const existing = await Course.findOne({ code: code.trim().toUpperCase(), repId });
+    if (finalRepIds.length === 0) {
+      return res.status(400).json({ error: 'At least one representative (or matric number) is required.' });
+    }
+
+    // Verify representatives actually exist and have correct role
+    const verifiedRepsCount = await User.countDocuments({ _id: { $in: finalRepIds }, role: 'rep' });
+    if (verifiedRepsCount !== finalRepIds.length) {
+      return res.status(404).json({ error: 'One or more representative groups were not found.' });
+    }
+
+    // Verify course uniqueness for this lecturer
+    const existing = await Course.findOne({ code: code.trim().toUpperCase(), lecturerId: req.user._id });
     if (existing) {
-      return res.status(400).json({ error: 'This course is already allocated to this group.' });
+      return res.status(400).json({ error: 'You have already created a course with this code.' });
     }
 
     const course = new Course({
       code: code.trim().toUpperCase(),
       name: name.trim(),
       lecturerId: req.user._id,
-      repId
+      repIds: finalRepIds
     });
 
     await course.save();
@@ -46,8 +65,17 @@ router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
 router.get('/lecturer', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
   try {
     const courses = await Course.find({ lecturerId: req.user._id })
-      .populate('repId', 'name email inviteCode');
-    res.json(courses);
+      .populate('repIds', 'name email inviteCode groupDescription matric');
+
+    // Add derived classIdentifier (joins rep group descriptions)
+    const coursesList = courses.map(course => {
+      const courseObj = course.toObject();
+      const descriptions = (course.repIds || []).map(r => r.groupDescription || r.name || 'Unnamed Group');
+      courseObj.classIdentifier = descriptions.join(' & ');
+      return courseObj;
+    });
+
+    res.json(coursesList);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -61,9 +89,9 @@ router.get('/student', auth, async (req, res) => {
       return res.status(400).json({ error: 'No representative group linked to this account.' });
     }
 
-    // Find all courses allocated to this rep group
+    // Find all courses where student's repId is in repIds list
     const courses = await Course.find({
-      repId,
+      repIds: repId,
       excludedStudents: { $ne: req.user._id } // exclude if student has been kicked out
     }).populate('lecturerId', 'name email');
 
@@ -86,20 +114,23 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
       return res.status(403).json({ error: 'Forbidden' });
     }
 
-    // Get all approved students in this rep group
+    // Get all approved students in the course's rep groups
     const students = await User.find({
       role: 'student',
       isApproved: true,
-      $or: [
-        { repId: course.repId },
-        { repId: course.repId.toString() }
-      ]
-    }).select('name matric email');
+      repId: { $in: course.repIds }
+    }).select('name matric email repId groupDescription group');
 
-    // Also get the representative since they are also a student and take classes
-    const rep = await User.findOne({ _id: course.repId, role: 'rep' }).select('name matric email');
-    if (rep && rep.isApproved !== false) {
-      students.push(rep);
+    // Also get the representatives since they are also students and take classes
+    const reps = await User.find({ _id: { $in: course.repIds }, role: 'rep' })
+      .select('name matric email groupDescription group');
+    
+    // Combine students and reps
+    const allCohortUsers = [...students];
+    for (const rep of reps) {
+      if (rep.isApproved !== false) {
+        allCohortUsers.push(rep);
+      }
     }
 
     // Fetch all attendance sessions for this course
@@ -107,7 +138,7 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
 
     // Build roster statistics
     const roster = [];
-    for (const student of students) {
+    for (const student of allCohortUsers) {
       const attendedSessions = await AttendanceRecord.countDocuments({
         courseId: course._id,
         studentId: student._id
@@ -121,7 +152,10 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
         name: student.name,
         matric: student.matric,
         email: student.email,
-        role: student._id.toString() === course.repId.toString() ? 'rep' : 'student',
+        role: student.role,
+        repId: student.repId || student._id,
+        groupDescription: student.groupDescription,
+        group: student.group,
         totalSessions,
         attendedSessions,
         missedClasses: missedCount,
@@ -130,11 +164,28 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
       });
     }
 
+    // Generate groupedRoster (group by representative's groupDescription)
+    const groupedRoster = {};
+    const repMap = {};
+    reps.forEach(r => {
+      repMap[r._id.toString()] = r.groupDescription || r.name || 'Unnamed Cohort';
+    });
+
+    roster.forEach(student => {
+      const repKey = student.repId ? student.repId.toString() : student._id.toString();
+      const cohortName = repMap[repKey] || 'Other Cohort';
+      if (!groupedRoster[cohortName]) {
+        groupedRoster[cohortName] = [];
+      }
+      groupedRoster[cohortName].push(student);
+    });
+
     res.json({
       courseCode: course.code,
       courseName: course.name,
       totalSessions,
-      roster
+      roster,
+      groupedRoster
     });
   } catch (err) {
     console.error('Fetch course students error:', err);
