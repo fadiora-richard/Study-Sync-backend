@@ -1,29 +1,61 @@
 import express from "express";
 import Deadline from "../models/deadline.js";
 import User from "../models/user.js";
+import Course from "../models/course.js";
 import { auth, requireRole } from "../middleware/auth.js";
 import { scheduleDeadlineNotifications } from "../services/scheduler.js";
 
 const router = express.Router();
 
-// Create deadline (Rep only)
-router.post("/", auth, requireRole("rep"), async (req, res) => {
+// Create deadline (rep, lecturer, hod)
+router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res) => {
   try {
-    const { title, description, dueDate, repId } = req.body;
+    const { title, description, dueDate, repId, courseId } = req.body;
 
-    if (!title || !dueDate || !repId)
-      return res.status(400).json({ error: "Missing required fields." });
+    if (!title || !dueDate) {
+      return res.status(400).json({ error: "Title and due date are required." });
+    }
 
-    // Ensure they only create deadlines for their own group
-    if (req.user._id.toString() !== repId.toString() && req.user.role !== 'admin') {
+    let targetRepId = repId;
+    if (!targetRepId && courseId) {
+      const course = await Course.findById(courseId);
+      if (!course) {
+        return res.status(404).json({ error: "Course not found" });
+      }
+      targetRepId = course.repId;
+    }
+
+    if (!targetRepId) {
+      return res.status(400).json({ error: "repId or courseId is required to identify the target student group." });
+    }
+
+    // Check authorization based on role
+    if (req.user.role === 'rep' && req.user._id.toString() !== targetRepId.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (req.user.role === 'lecturer' || req.user.role === 'hod') {
+      if (courseId) {
+        const course = await Course.findById(courseId);
+        if (!course || (course.lecturerId.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'hod')) {
+          return res.status(403).json({ error: "Forbidden. You do not teach this course." });
+        }
+      } else {
+        // Verify lecturer teaches this rep group
+        const course = await Course.findOne({ repId: targetRepId, lecturerId: req.user._id });
+        if (!course && req.user.role !== 'admin' && req.user.role !== 'hod') {
+          return res.status(403).json({ error: "Forbidden. You do not teach this student group." });
+        }
+      }
     }
 
     const newDeadline = new Deadline({
       title,
       description,
       dueDate,
-      repId
+      repId: targetRepId,
+      courseId,
+      authorId: req.user._id
     });
 
     await newDeadline.save();
@@ -59,14 +91,16 @@ router.get("/:repId", auth, async (req, res) => {
   }
 });
 
-// Update deadline (Rep only)
-router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
+// Update deadline (rep, lecturer, hod)
+router.patch("/:id", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res) => {
   try {
     const deadline = await Deadline.findById(req.params.id);
     if (!deadline) return res.status(404).json({ error: "Deadline not found." });
 
-    // Enforce rep ownership
-    if (deadline.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // Enforce ownership
+    const isAuthor = deadline.authorId && deadline.authorId.toString() === req.user._id.toString();
+    const isRep = deadline.repId.toString() === req.user._id.toString();
+    if (!isAuthor && !isRep && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -91,14 +125,16 @@ router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
   }
 });
 
-// Delete deadline (Rep only)
-router.delete("/:id", auth, requireRole("rep"), async (req, res) => {
+// Delete deadline (rep, lecturer, hod)
+router.delete("/:id", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res) => {
   try {
     const deadline = await Deadline.findById(req.params.id);
     if (!deadline) return res.status(404).json({ error: "Deadline not found." });
 
-    // Enforce rep ownership
-    if (deadline.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // Enforce ownership
+    const isAuthor = deadline.authorId && deadline.authorId.toString() === req.user._id.toString();
+    const isRep = deadline.repId.toString() === req.user._id.toString();
+    if (!isAuthor && !isRep && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
     }
 
