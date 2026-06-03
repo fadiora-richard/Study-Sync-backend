@@ -14,49 +14,51 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
       return res.status(400).json({ error: "Title and message are required." });
     }
 
-    let targetRepId = repId;
-    if (!targetRepId && courseId) {
+    let targetRepIds = [];
+    
+    if (courseId) {
       const course = await Course.findById(courseId);
       if (!course) {
         return res.status(404).json({ error: "Course not found" });
       }
-      targetRepId = course.repId;
-    }
-
-    if (!targetRepId) {
-      return res.status(400).json({ error: "repId or courseId is required to identify the target student group." });
-    }
-
-    // Check authorization based on role
-    if (req.user.role === 'rep' && req.user._id.toString() !== targetRepId.toString() && req.user.role !== 'admin') {
-      return res.status(403).json({ error: "Forbidden" });
-    }
-
-    if (req.user.role === 'lecturer' || req.user.role === 'hod') {
-      if (courseId) {
-        const course = await Course.findById(courseId);
-        if (!course || (course.lecturerId.toString() !== req.user._id.toString() && req.user.role !== 'admin' && req.user.role !== 'hod')) {
-          return res.status(403).json({ error: "Forbidden. You do not teach this course." });
-        }
-      } else {
+      // Check authorization (lecturer owns course, HOD/admin can bypass)
+      if (req.user.role !== 'admin' && req.user.role !== 'hod' && course.lecturerId.toString() !== req.user._id.toString()) {
+        return res.status(403).json({ error: "Forbidden. You do not teach this course." });
+      }
+      targetRepIds = course.repIds || [];
+    } else if (repId) {
+      targetRepIds = [repId];
+      // Check authorization based on role
+      if (req.user.role === 'rep' && req.user._id.toString() !== repId.toString() && req.user.role !== 'admin') {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      if (req.user.role === 'lecturer' || req.user.role === 'hod') {
         // Verify lecturer teaches this rep group
-        const course = await Course.findOne({ repId: targetRepId, lecturerId: req.user._id });
+        const course = await Course.findOne({ repIds: repId, lecturerId: req.user._id });
         if (!course && req.user.role !== 'admin' && req.user.role !== 'hod') {
           return res.status(403).json({ error: "Forbidden. You do not teach this student group." });
         }
       }
     }
 
-    const announcement = new Announcement({
-      repId: targetRepId,
-      courseId,
-      authorId: req.user._id,
-      title,
-      message
-    });
-    
-    await announcement.save();
-    res.json(announcement);
+    if (targetRepIds.length === 0) {
+      return res.status(400).json({ error: "repId or courseId is required to identify the target student group(s)." });
+    }
+
+    const announcements = [];
+    for (const rId of targetRepIds) {
+      const announcement = new Announcement({
+        repId: rId,
+        courseId,
+        authorId: req.user._id,
+        title,
+        message
+      });
+      await announcement.save();
+      announcements.push(announcement);
+    }
+
+    res.json(announcements.length === 1 ? announcements[0] : announcements);
   } catch (err) {
     console.error("Create announcement error:", err);
     res.status(500).json({ error: err.message });
