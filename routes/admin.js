@@ -4,14 +4,21 @@ import Deadline from "../models/deadline.js";
 import Announcement from "../models/announcement.js";
 import Timetable from "../models/timetable.js";
 import bcrypt from "bcryptjs";
+import Course from "../models/course.js";
+import Report from "../models/report.js";
 import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// GET /admin/reps (Admin only)
-router.get("/reps", auth, requireRole("admin"), async (req, res) => {
+// GET /admin/reps (Admin, HOD, and Lecturer)
+router.get("/reps", auth, requireRole(["admin", "hod", "lecturer"]), async (req, res) => {
   try {
-    const reps = await User.find({ role: "rep" });
+    const query = { role: "rep" };
+    // Filter reps by department if requester is not admin and has a department set
+    if (req.user.role !== "admin" && req.user.department) {
+      query.department = req.user.department;
+    }
+    const reps = await User.find(query);
 
     // Defensively populate missing invite codes for legacy representatives
     for (const rep of reps) {
@@ -31,7 +38,7 @@ router.get("/reps", auth, requireRole("admin"), async (req, res) => {
     }
 
     // Return representatives list excluding passwords
-    const repsList = await User.find({ role: "rep" }).select("-passwordHash");
+    const repsList = await User.find(query).select("-passwordHash");
     res.json(repsList);
   } catch (err) {
     console.error("Fetch reps error:", err);
@@ -39,10 +46,10 @@ router.get("/reps", auth, requireRole("admin"), async (req, res) => {
   }
 });
 
-// POST /admin/create-rep (Admin only)
-router.post("/create-rep", auth, requireRole("admin"), async (req, res) => {
+// POST /admin/create-rep (Admin, HOD, and Lecturer)
+router.post("/create-rep", auth, requireRole(["admin", "hod", "lecturer"]), async (req, res) => {
   try {
-    const { name, email, matric, password } = req.body;
+    const { name, email, matric, password, department } = req.body;
 
     if (!name || !email || !matric || !password) {
       return res.status(400).json({ error: "All fields are required" });
@@ -80,6 +87,7 @@ router.post("/create-rep", auth, requireRole("admin"), async (req, res) => {
       passwordHash: hashed,
       role: "rep",
       inviteCode,
+      department: department || req.user.department
     });
 
     await rep.save();
@@ -93,6 +101,7 @@ router.post("/create-rep", auth, requireRole("admin"), async (req, res) => {
         matric: rep.matric,
         role: rep.role,
         inviteCode: rep.inviteCode,
+        department: rep.department
       },
     });
   } catch (err) {
@@ -154,6 +163,117 @@ router.delete("/reps/:id", auth, requireRole("admin"), async (req, res) => {
   } catch (err) {
     console.error("Cascade delete rep error:", err);
     res.status(500).json({ error: "Server error performing representative cascade deletion" });
+  }
+});
+
+// POST /admin/transfer-rep (Admin, HOD, and Lecturer)
+router.post("/transfer-rep", auth, requireRole(["admin", "hod", "lecturer"]), async (req, res) => {
+  try {
+    const { oldRepId, newStudentId } = req.body;
+
+    if (!oldRepId || !newStudentId) {
+      return res.status(400).json({ error: "oldRepId and newStudentId are required." });
+    }
+
+    // 1. Verify old representative exists and has the rep role
+    const oldRep = await User.findOne({ _id: oldRepId, role: "rep" });
+    if (!oldRep) {
+      return res.status(404).json({ error: "Current representative not found or invalid role." });
+    }
+
+    // 2. Verify new student exists and has student role and belongs to old rep's group
+    const newRep = await User.findOne({ _id: newStudentId, role: "student" });
+    if (!newRep) {
+      return res.status(404).json({ error: "Target student not found or invalid role." });
+    }
+
+    if (newRep.repId.toString() !== oldRepId.toString()) {
+      return res.status(400).json({ error: "Target student does not belong to the representative's group." });
+    }
+
+    console.log(`[Rep Transfer] Transferring role from ${oldRep.name} (${oldRepId}) to ${newRep.name} (${newStudentId})`);
+
+    // 3. Keep old rep's invite code and give it to the new rep
+    const inviteCode = oldRep.inviteCode;
+    
+    // 4. Demote the old rep to a student and save first to free up the unique inviteCode
+    oldRep.role = "student";
+    oldRep.inviteCode = undefined;
+    oldRep.repId = newRep._id;
+    await oldRep.save();
+
+    // 5. Update the new rep's fields and save second
+    newRep.role = "rep";
+    newRep.inviteCode = inviteCode;
+    newRep.repId = undefined; // Reps don't have a repId
+    // If the student doesn't have a department, inherit it from old rep
+    if (!newRep.department) {
+      newRep.department = oldRep.department;
+    }
+    await newRep.save();
+
+    // 6. Update all students under the old representative group to the new representative
+    const studentsUpdate = await User.updateMany(
+      { repId: oldRep._id, role: "student" },
+      { repId: newRep._id }
+    );
+    console.log(`- Updated repId for ${studentsUpdate.modifiedCount} students`);
+
+    // 7. Update course allocations
+    const coursesUpdate = await Course.updateMany(
+      { repId: oldRep._id },
+      { repId: newRep._id }
+    );
+    console.log(`- Updated repId for ${coursesUpdate.modifiedCount} courses`);
+
+    // 8. Update timetables, announcements, deadlines, and reports
+    const timetablesUpdate = await Timetable.updateMany(
+      { repId: oldRep._id },
+      { repId: newRep._id }
+    );
+    const announcementsUpdate = await Announcement.updateMany(
+      { repId: oldRep._id },
+      { repId: newRep._id }
+    );
+    const deadlinesUpdate = await Deadline.updateMany(
+      { repId: oldRep._id },
+      { repId: newRep._id }
+    );
+    const reportsUpdate = await Report.updateMany(
+      { repId: oldRep._id },
+      { repId: newRep._id }
+    );
+
+    console.log(`- Updated timetables, announcements, deadlines, and reports to point to new rep.`);
+
+    return res.json({
+      message: "Representative role transferred successfully.",
+      oldRep: {
+        id: oldRep._id,
+        name: oldRep.name,
+        role: oldRep.role,
+        repId: oldRep.repId
+      },
+      newRep: {
+        id: newRep._id,
+        name: newRep.name,
+        role: newRep.role,
+        inviteCode: newRep.inviteCode,
+        department: newRep.department
+      },
+      updates: {
+        studentsCount: studentsUpdate.modifiedCount,
+        coursesCount: coursesUpdate.modifiedCount,
+        timetablesCount: timetablesUpdate.modifiedCount,
+        announcementsCount: announcementsUpdate.modifiedCount,
+        deadlinesCount: deadlinesUpdate.modifiedCount,
+        reportsCount: reportsUpdate.modifiedCount
+      }
+    });
+
+  } catch (err) {
+    console.error("Transfer rep error:", err);
+    return res.status(500).json({ error: "Server error during representative role transfer." });
   }
 });
 
