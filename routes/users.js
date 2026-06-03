@@ -73,6 +73,12 @@ router.patch("/:id", auth, async (req, res) => {
     }
 
     const { name, email, groupDescription } = req.body;
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Invalid email address format." });
+      }
+    }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 

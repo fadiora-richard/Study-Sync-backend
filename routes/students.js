@@ -40,6 +40,13 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
       return res.status(400).json({ error: "Name, matric number, and password are required." });
     }
 
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Invalid email address format." });
+      }
+    }
+
     // Check if matric already in use
     const existingMatric = await User.findOne({ matric });
     if (existingMatric) {
@@ -97,7 +104,13 @@ router.patch("/:id/approve", auth, requireRole("rep"), async (req, res) => {
 router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
   try {
     const { name, email, matric } = req.body;
-    
+    if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: "Invalid email address format." });
+      }
+    }
+
     const student = await User.findById(req.params.id);
     if (!student) {
       return res.status(404).json({ error: "Student not found" });
