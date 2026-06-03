@@ -19,6 +19,11 @@ router.post('/login', async (req, res) => {
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
 
+    // Enforce account approval check
+    if (user.isApproved === false) {
+      return res.status(403).json({ message: 'Your account is awaiting approval' });
+    }
+
     const token = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
     return res.json({ token, role: user.role, userId: user._id });
   } catch (err) {
@@ -35,7 +40,16 @@ router.post('/signup', async (req, res) => {
       return res.status(400).json({ message: "Name, password, and role are required." });
     }
 
+    // Require matric for student and rep roles
+    if ((role === 'student' || role === 'rep') && !matric) {
+      return res.status(400).json({ message: "Matric number is required." });
+    }
+
     if (email) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ message: "Invalid email address format." });
+      }
       const emailExists = await User.findOne({ email });
       if (emailExists) return res.status(400).json({ message: "Email already in use." });
     }
