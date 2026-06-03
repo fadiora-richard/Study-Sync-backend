@@ -6,10 +6,17 @@ import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
 
-// GET all students assigned to this rep (rep only)
-router.get("/", auth, requireRole("rep"), async (req, res) => {
-  const repId = req.user._id; // enforce logged-in rep ID
+// GET all students assigned to a rep (Rep, Lecturer, HOD, and Admin)
+router.get("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res) => {
   try {
+    let repId = req.user._id;
+    if (req.user.role !== "rep") {
+      repId = req.query.repId;
+      if (!repId) {
+        return res.status(400).json({ error: "repId query parameter is required for non-representative users." });
+      }
+    }
+
     const students = await User.find({
       role: "student",
       $or: [
@@ -47,7 +54,8 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
       matric,
       passwordHash: hashed,
       role: "student",
-      repId: repId
+      repId: repId,
+      isApproved: true // Manually registered students are approved by default
     });
 
     await student.save();
@@ -59,6 +67,28 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
     res.status(201).json(responseData);
   } catch (err) {
     console.error("Create student error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH approve a student (rep only)
+router.patch("/:id/approve", auth, requireRole("rep"), async (req, res) => {
+  try {
+    const student = await User.findById(req.params.id);
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Ensure the student belongs to this representative
+    if (student.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    student.isApproved = true;
+    await student.save();
+
+    res.json({ message: "Student approved successfully", isApproved: student.isApproved });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });

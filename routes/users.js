@@ -1,9 +1,31 @@
 import express from "express";
 import User from "../models/user.js";
 import bcrypt from "bcryptjs";
-import { auth } from "../middleware/auth.js";
+import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
+
+// GET /users/department/lecturers (HOD and Admin only) - view lecturers in HOD's department
+router.get("/department/lecturers", auth, requireRole(["hod", "admin"]), async (req, res) => {
+  try {
+    let department = req.query.department || req.user.department;
+
+    if (!department && req.user.role !== 'admin') {
+      return res.status(400).json({ error: "Your account does not have a department assigned, and no department query was provided." });
+    }
+
+    const query = { role: "lecturer" };
+    if (department) {
+      query.department = department;
+    }
+
+    const lecturers = await User.find(query).select("-passwordHash");
+    res.json(lecturers);
+  } catch (err) {
+    console.error("Fetch department lecturers error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // GET USER BY ID (student or rep) - Secure and strip passwordHash
 router.get("/:id", auth, async (req, res) => {
@@ -39,6 +61,32 @@ router.get("/:id", auth, async (req, res) => {
     res.json(userObj);
   } catch (err) {
     console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH UPDATE PROFILE
+router.patch("/:id", auth, async (req, res) => {
+  try {
+    if (req.user._id.toString() !== req.params.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    const { name, email, groupDescription } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    if (name) user.name = name;
+    if (email) user.email = email;
+    if (groupDescription !== undefined) user.groupDescription = groupDescription;
+
+    await user.save();
+
+    const userObj = user.toObject();
+    delete userObj.passwordHash;
+    res.json(userObj);
+  } catch (err) {
+    console.error("Profile update error:", err);
     res.status(500).json({ error: err.message });
   }
 });
