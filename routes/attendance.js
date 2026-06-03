@@ -1,6 +1,7 @@
 import express from 'express';
 import crypto from 'crypto';
 import Course from '../models/course.js';
+import User from '../models/user.js';
 import AttendanceSession from '../models/attendanceSession.js';
 import AttendanceRecord from '../models/attendanceRecord.js';
 import { auth, requireRole } from '../middleware/auth.js';
@@ -29,7 +30,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 // Start an attendance session (Lecturer only)
 router.post('/session', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
   try {
-    const { courseId, latitude, longitude, timeLimit, radius } = req.body;
+    const { courseId, targetRepId, latitude, longitude, timeLimit, radius } = req.body;
 
     if (!courseId || latitude === undefined || longitude === undefined || !timeLimit) {
       return res.status(400).json({ error: 'Course ID, coordinates, and time limit are required.' });
@@ -45,12 +46,26 @@ router.post('/session', auth, requireRole(['lecturer', 'hod']), async (req, res)
       return res.status(403).json({ error: 'Forbidden' });
     }
 
+    // Verify target representative if provided
+    if (targetRepId) {
+      const repExists = await User.findOne({ _id: targetRepId, role: 'rep' });
+      if (!repExists) {
+        return res.status(404).json({ error: 'Selected representative group was not found.' });
+      }
+      const isAssigned = (course.repIds && course.repIds.some(id => id.toString() === targetRepId.toString())) ||
+                         (course.repId && course.repId.toString() === targetRepId.toString());
+      if (!isAssigned) {
+        return res.status(400).json({ error: 'Selected representative group is not assigned to this course.' });
+      }
+    }
+
     // Generate dynamic QR token
     const qrToken = crypto.randomBytes(16).toString('hex');
     const expiresAt = new Date(Date.now() + timeLimit * 60 * 1000);
 
     const session = new AttendanceSession({
       courseId,
+      targetRepId: targetRepId || undefined,
       qrToken,
       latitude,
       longitude,
@@ -102,6 +117,12 @@ router.post('/submit', auth, async (req, res) => {
 
     // Verify student belongs to this course rep group (any of the allocated rep groups)
     const studentRepId = req.user.role === 'rep' ? req.user._id : req.user.repId;
+
+    // Check targeted cohort restrictions
+    if (session.targetRepId && session.targetRepId.toString() !== studentRepId.toString()) {
+      return res.status(403).json({ error: 'This attendance session is not for your cohort/group.' });
+    }
+
     const hasRepPlural = course.repIds && course.repIds.some(id => id.toString() === studentRepId.toString());
     const hasRepSingular = course.repId && course.repId.toString() === studentRepId.toString();
     if (!hasRepPlural && !hasRepSingular) {
@@ -142,7 +163,14 @@ router.post('/submit', auth, async (req, res) => {
     await record.save();
 
     // Check attendance thresholds (flag at 3, exclude at > 4 missed)
-    const totalSessions = await AttendanceSession.countDocuments({ courseId: course._id });
+    const totalSessions = await AttendanceSession.countDocuments({
+      courseId: course._id,
+      $or: [
+        { targetRepId: studentRepId },
+        { targetRepId: { $exists: false } },
+        { targetRepId: null }
+      ]
+    });
     const attendedCount = await AttendanceRecord.countDocuments({
       courseId: course._id,
       studentId: req.user._id

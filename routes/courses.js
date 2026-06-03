@@ -152,18 +152,30 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
       }
     }
 
-    // Fetch all attendance sessions for this course
-    const totalSessions = await AttendanceSession.countDocuments({ courseId: course._id });
+    // Fetch all attendance sessions for this course (course total)
+    const courseTotalSessions = await AttendanceSession.countDocuments({ courseId: course._id });
 
     // Build roster statistics
     const roster = [];
     for (const student of allCohortUsers) {
+      const studentRepId = student.repId || student._id;
+      
+      // Calculate eligible sessions for this student's cohort
+      const studentTotalSessions = await AttendanceSession.countDocuments({
+        courseId: course._id,
+        $or: [
+          { targetRepId: studentRepId },
+          { targetRepId: { $exists: false } },
+          { targetRepId: null }
+        ]
+      });
+
       const attendedSessions = await AttendanceRecord.countDocuments({
         courseId: course._id,
         studentId: student._id
       });
 
-      const missedCount = totalSessions - attendedSessions;
+      const missedCount = studentTotalSessions - attendedSessions;
       const isExcluded = course.excludedStudents.includes(student._id);
 
       roster.push({
@@ -172,10 +184,10 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
         matric: student.matric,
         email: student.email,
         role: student.role,
-        repId: student.repId || student._id,
+        repId: studentRepId,
         groupDescription: student.groupDescription,
         group: student.group,
-        totalSessions,
+        totalSessions: studentTotalSessions,
         attendedSessions,
         missedClasses: missedCount,
         isFlagged: missedCount >= 3 && missedCount <= 4,
@@ -202,7 +214,7 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
     res.json({
       courseCode: course.code,
       courseName: course.name,
-      totalSessions,
+      totalSessions: courseTotalSessions,
       roster,
       groupedRoster
     });
