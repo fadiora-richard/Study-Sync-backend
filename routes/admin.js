@@ -55,14 +55,22 @@ router.post("/create-rep", auth, requireRole(["admin", "hod", "lecturer"]), asyn
       return res.status(400).json({ error: "All fields are required" });
     }
 
+    const cleanEmail = email.toLowerCase().trim();
+    const cleanMatric = matric.toUpperCase().trim();
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      return res.status(400).json({ error: "Invalid email address format." });
+    }
+
     // Check if email already exists
-    const existing = await User.findOne({ email });
+    const existing = await User.findOne({ email: cleanEmail });
     if (existing) {
       return res.status(400).json({ error: "Email already in use" });
     }
 
     // Check if matric number already exists
-    const existingMatric = await User.findOne({ matric });
+    const existingMatric = await User.findOne({ matric: cleanMatric });
     if (existingMatric) {
       return res.status(400).json({ error: "Matric number already in use" });
     }
@@ -82,8 +90,8 @@ router.post("/create-rep", auth, requireRole(["admin", "hod", "lecturer"]), asyn
 
     const rep = new User({
       name,
-      email,
-      matric,
+      email: cleanEmail,
+      matric: cleanMatric,
       passwordHash: hashed,
       role: "rep",
       inviteCode,
@@ -219,12 +227,12 @@ router.post("/transfer-rep", auth, requireRole(["admin", "hod", "lecturer"]), as
     );
     console.log(`- Updated repId for ${studentsUpdate.modifiedCount} students`);
 
-    // 7. Update course allocations
+    // 7. Update course allocations (updating elements in repIds array)
     const coursesUpdate = await Course.updateMany(
-      { repId: oldRep._id },
-      { repId: newRep._id }
+      { repIds: oldRep._id },
+      { $set: { "repIds.$": newRep._id } }
     );
-    console.log(`- Updated repId for ${coursesUpdate.modifiedCount} courses`);
+    console.log(`- Updated repIds for ${coursesUpdate.modifiedCount} courses`);
 
     // 8. Update timetables, announcements, deadlines, and reports
     const timetablesUpdate = await Timetable.updateMany(
