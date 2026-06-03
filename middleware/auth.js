@@ -21,8 +21,9 @@ export const auth = async (req, res, next) => {
   }
 };
 
-export const requireRole = (role) => (req, res, next) => {
+export const requireRole = (roles) => (req, res, next) => {
   if (!req.user) return res.status(401).json({ message: 'No user' });
-  if (req.user.role === role || req.user.role === 'admin') return next();
+  const allowedRoles = Array.isArray(roles) ? roles : [roles];
+  if (allowedRoles.includes(req.user.role) || req.user.role === 'admin') return next();
   return res.status(403).json({ message: 'Forbidden' });
 };

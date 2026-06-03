@@ -10,6 +10,16 @@ const deadlineSchema = new mongoose.Schema({
     ref: "User",
     required: true
   },
+  courseId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Course",
+    required: false
+  },
+  authorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: false
+  },
 
   createdAt: { type: Date, default: Date.now }
 });
