@@ -100,10 +100,10 @@ router.post('/submit', auth, async (req, res) => {
       return res.status(403).json({ error: 'You have been excluded from this course due to excessive absences (exceeded 4 missed classes).' });
     }
 
-    // Verify student belongs to this course rep group
+    // Verify student belongs to this course rep group (any of the allocated rep groups)
     const studentRepId = req.user.role === 'rep' ? req.user._id : req.user.repId;
-    if (studentRepId.toString() !== course.repId.toString()) {
-      return res.status(403).json({ error: 'You do not belong to the student group for this course.' });
+    if (!course.repIds || !course.repIds.some(id => id.toString() === studentRepId.toString())) {
+      return res.status(403).json({ error: 'You do not belong to any student group for this course.' });
     }
 
     // Location verification check
