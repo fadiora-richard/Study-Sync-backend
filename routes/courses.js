@@ -40,10 +40,14 @@ router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
       return res.status(404).json({ error: 'One or more representative groups were not found.' });
     }
 
-    // Verify course uniqueness for this lecturer
-    const existing = await Course.findOne({ code: code.trim().toUpperCase(), lecturerId: req.user._id });
+    // Verify that none of these representatives are already assigned to this course code for this lecturer
+    const existing = await Course.findOne({
+      code: code.trim().toUpperCase(),
+      lecturerId: req.user._id,
+      repIds: { $in: finalRepIds }
+    });
     if (existing) {
-      return res.status(400).json({ error: 'You have already created a course with this code.' });
+      return res.status(400).json({ error: 'One or more of the selected representatives are already assigned to this course code under your account.' });
     }
 
     const course = new Course({

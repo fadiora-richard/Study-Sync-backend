@@ -10,7 +10,7 @@ const courseSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-// Set a compound index so a course code is unique per lecturer
-courseSchema.index({ code: 1, lecturerId: 1 }, { unique: true });
+// Set a compound index for query performance (non-unique to allow parallel classes)
+courseSchema.index({ code: 1, lecturerId: 1 });
 
 export default mongoose.models.Course || mongoose.model('Course', courseSchema);
