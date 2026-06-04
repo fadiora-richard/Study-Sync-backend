@@ -8,6 +8,8 @@ const courseSchema = new mongoose.Schema({
   repIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Representative groups (cohorts)
   excludedStudents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Excluded students due to > 4 missed classes
   reinstatedStudents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Overridden exclusion students
+  department: { type: String, required: false },
+  level: { type: String, required: false },
   createdAt: { type: Date, default: Date.now }
 });
 

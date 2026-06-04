@@ -176,7 +176,7 @@ router.get('/:id/students', auth, requireRole(['lecturer', 'hod']), async (req, 
       });
 
       const missedCount = studentTotalSessions - attendedSessions;
-      const isExcluded = course.excludedStudents.includes(student._id);
+      const isExcluded = course.excludedStudents && course.excludedStudents.some(id => id.toString() === student._id.toString());
 
       roster.push({
         _id: student._id,
@@ -243,7 +243,8 @@ router.post('/:id/exclude', auth, requireRole(['lecturer', 'hod']), async (req, 
     }
 
     // Add to excluded if not already there
-    if (!course.excludedStudents.includes(studentId)) {
+    if (!course.excludedStudents || !course.excludedStudents.some(id => id.toString() === studentId.toString())) {
+      if (!course.excludedStudents) course.excludedStudents = [];
       course.excludedStudents.push(studentId);
     }
     // Remove from reinstated if they are in it
@@ -286,7 +287,8 @@ router.post('/:id/reinstate', auth, requireRole(['lecturer', 'hod']), async (req
       id => id.toString() !== studentId.toString()
     );
     // Add to reinstated if not already there
-    if (!course.reinstatedStudents.includes(studentId)) {
+    if (!course.reinstatedStudents || !course.reinstatedStudents.some(id => id.toString() === studentId.toString())) {
+      if (!course.reinstatedStudents) course.reinstatedStudents = [];
       course.reinstatedStudents.push(studentId);
     }
 

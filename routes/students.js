@@ -75,7 +75,8 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
       passwordHash: hashed,
       role: "student",
       repId: repId,
-      isApproved: true // Manually registered students are approved by default
+      isApproved: true, // Manually registered students are approved by default
+      approvedAt: new Date()
     });
 
     await student.save();
@@ -106,6 +107,7 @@ router.patch("/:id/approve", auth, requireRole("rep"), async (req, res) => {
 
     student.isApproved = true;
     student.isRejected = false;
+    student.approvedAt = new Date();
     await student.save();
 
     res.json({ message: "Student approved successfully", isApproved: student.isApproved, isRejected: student.isRejected });

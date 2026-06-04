@@ -67,6 +67,17 @@ export const scheduleDeadlineNotifications = async (deadline) => {
   return jobs;
 };
 
+export const cancelDeadlineNotifications = (deadlineId) => {
+  const id = deadlineId.toString();
+  if (scheduledJobs.has(id)) {
+    const jobs = scheduledJobs.get(id);
+    jobs.forEach(j => j.stop && j.stop());
+    scheduledJobs.delete(id);
+    console.log(`[Scheduler] Cancelled and removed jobs for deadline: ${id}`);
+  }
+};
+
+
 export const scheduleAllUpcomingDeadlines = async () => {
   try {
     const upcoming = await Deadline.find({ dueDate: { $gt: new Date() } });

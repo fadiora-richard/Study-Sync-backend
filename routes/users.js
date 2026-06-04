@@ -30,14 +30,17 @@ router.get("/department/lecturers", auth, requireRole(["hod", "admin"]), async (
 // GET USER BY ID (student or rep) - Secure and strip passwordHash
 router.get("/:id", auth, async (req, res) => {
   try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
     // Only allow the user themselves, their assigned rep, or an admin to view their profile
-    if (req.user._id.toString() !== req.params.id && req.user.role !== 'admin' && req.user.role !== 'rep') {
+    const isSelf = req.user._id.toString() === req.params.id;
+    const isAdmin = req.user.role === 'admin';
+    const isAssignedRep = req.user.role === 'rep' && user.repId && user.repId.toString() === req.user._id.toString();
+
+    if (!isSelf && !isAdmin && !isAssignedRep) {
       return res.status(403).json({ error: "Forbidden" });
     }
-
-    const user = await User.findById(req.params.id);
-
-    if (!user) return res.status(404).json({ error: "User not found" });
 
     // Defensively generate and save missing inviteCode for reps on details load
     if (user.role === "rep" && !user.inviteCode) {

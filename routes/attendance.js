@@ -111,7 +111,7 @@ router.post('/submit', auth, async (req, res) => {
     }
 
     // Verify student is not excluded
-    if (course.excludedStudents.includes(req.user._id)) {
+    if (course.excludedStudents && course.excludedStudents.some(id => id.toString() === req.user._id.toString())) {
       return res.status(403).json({ error: 'You have been excluded from this course due to excessive absences (exceeded 4 missed classes).' });
     }
 
@@ -182,11 +182,12 @@ router.post('/submit', auth, async (req, res) => {
 
     if (missedCount > 4) {
       // Auto-exclude student unless they have been manually reinstated
-      const isReinstated = course.reinstatedStudents && course.reinstatedStudents.includes(req.user._id);
+      const isReinstated = course.reinstatedStudents && course.reinstatedStudents.some(id => id.toString() === req.user._id.toString());
       if (isReinstated) {
         warningMessage = `Attendance logged. You have missed ${missedCount} classes, but you have a lecturer override.`;
       } else {
-        if (!course.excludedStudents.includes(req.user._id)) {
+        if (!course.excludedStudents || !course.excludedStudents.some(id => id.toString() === req.user._id.toString())) {
+          if (!course.excludedStudents) course.excludedStudents = [];
           course.excludedStudents.push(req.user._id);
           await course.save();
         }
