@@ -17,13 +17,19 @@ router.get("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res) 
       }
     }
 
-    const students = await User.find({
+    const includeRejected = req.query.includeRejected === "true";
+    const query = {
       role: "student",
       $or: [
         { repId: repId },
         { repId: repId.toString() }
       ]
-    }).select("-passwordHash");
+    };
+    if (!includeRejected) {
+      query.isRejected = { $ne: true };
+    }
+
+    const students = await User.find(query).select("-passwordHash");
     res.json(students);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -94,14 +100,38 @@ router.patch("/:id/approve", auth, requireRole("rep"), async (req, res) => {
     }
 
     // Ensure the student belongs to this representative
-    if (student.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if ((!student.repId || student.repId.toString() !== req.user._id.toString()) && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
     }
 
     student.isApproved = true;
+    student.isRejected = false;
     await student.save();
 
-    res.json({ message: "Student approved successfully", isApproved: student.isApproved });
+    res.json({ message: "Student approved successfully", isApproved: student.isApproved, isRejected: student.isRejected });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH reject a student (rep only)
+router.patch("/:id/reject", auth, requireRole("rep"), async (req, res) => {
+  try {
+    const student = await User.findById(req.params.id);
+    if (!student) {
+      return res.status(404).json({ error: "Student not found" });
+    }
+
+    // Ensure the student belongs to this representative
+    if ((!student.repId || student.repId.toString() !== req.user._id.toString()) && req.user.role !== 'admin') {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+
+    student.isApproved = false;
+    student.isRejected = true;
+    await student.save();
+
+    res.json({ message: "Student registration rejected successfully", isApproved: student.isApproved, isRejected: student.isRejected });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -138,7 +168,7 @@ router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
     }
 
     // Ensure the student belongs to this representative
-    if (student.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    if ((!student.repId || student.repId.toString() !== req.user._id.toString()) && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
     }
 
@@ -166,13 +196,16 @@ router.delete("/:id", auth, requireRole("rep"), async (req, res) => {
       return res.status(404).json({ error: "Student not found" });
     }
 
-    // Ensure only the rep who owns the student (or admin) can delete
-    if (student.repId.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
+    // Ensure only the rep who owns the student (or admin) can delete/reject
+    if ((!student.repId || student.repId.toString() !== req.user._id.toString()) && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
     }
 
-    await User.findByIdAndDelete(req.params.id);
-    res.json({ message: "Student deleted successfully" });
+    student.isApproved = false;
+    student.isRejected = true;
+    await student.save();
+
+    res.json({ message: "Student invite cancelled and registration rejected", isApproved: false, isRejected: true });
   } catch (err) {
     console.error("Error deleting student:", err);
     res.status(500).json({ error: err.message });

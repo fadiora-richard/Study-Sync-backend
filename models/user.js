@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },
   role: { type: String, enum: ['student', 'rep', 'lecturer', 'hod', 'admin'], default: 'student' },
   isApproved: { type: Boolean, default: function() { return this.role !== 'student'; } },
+  isRejected: { type: Boolean, default: false },
   groupDescription: { type: String, required: false },
   department: { type: String, required: false },
   group: { type: String, required: false },
