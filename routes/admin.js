@@ -6,6 +6,7 @@ import Timetable from "../models/timetable.js";
 import bcrypt from "bcryptjs";
 import Course from "../models/course.js";
 import Report from "../models/report.js";
+import Department from "../models/department.js";
 import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -282,6 +283,26 @@ router.post("/transfer-rep", auth, requireRole(["admin", "hod", "lecturer"]), as
   } catch (err) {
     console.error("Transfer rep error:", err);
     return res.status(500).json({ error: "Server error during representative role transfer." });
+  }
+});
+
+// GET /admin/stats (Admin only) - returns general system statistics
+router.get("/stats", auth, requireRole("admin"), async (req, res) => {
+  try {
+    const totalDepartments = await Department.countDocuments({});
+    const totalReps = await User.countDocuments({ role: "rep" });
+    const totalStudents = await User.countDocuments({ role: "student" });
+    const totalLecturers = await User.countDocuments({ role: { $in: ["lecturer", "hod"] } });
+
+    res.json({
+      departments: totalDepartments,
+      reps: totalReps,
+      students: totalStudents,
+      lecturers: totalLecturers
+    });
+  } catch (err) {
+    console.error("Fetch admin stats error:", err);
+    res.status(500).json({ error: "Server error fetching stats" });
   }
 });
 

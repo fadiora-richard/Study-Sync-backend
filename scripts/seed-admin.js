@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import bcrypt from 'bcryptjs';
 import { connectDB } from '../config/db.js';
 import User from '../models/user.js';
+import Department from '../models/department.js';
 
 dotenv.config();
 
@@ -51,12 +52,20 @@ const seedAdmin = async () => {
         matric: "HOD001",
         passwordHash: hodPasswordHash,
         role: "hod",
+        department: "Computer Science",
         isApproved: true
       });
       await defaultHod.save();
       console.log("HOD seeded.");
     } else {
-      console.log("HOD already exists.");
+      // Proactively ensure existing HOD has a department assigned
+      if (!existingHod.department) {
+        existingHod.department = "Computer Science";
+        await existingHod.save();
+        console.log("Updated existing HOD with Computer Science department.");
+      } else {
+        console.log("HOD already exists and has department.");
+      }
     }
 
     // Seed Lecturer if not exists
@@ -71,19 +80,50 @@ const seedAdmin = async () => {
         matric: "LEC001",
         passwordHash: lecPasswordHash,
         role: "lecturer",
+        department: "Computer Science",
         isApproved: true
       });
       await defaultLecturer.save();
       console.log("Lecturer seeded.");
     } else {
-      console.log("Lecturer already exists.");
+      // Proactively ensure existing Lecturer has a department assigned
+      if (!existingLecturer.department) {
+        existingLecturer.department = "Computer Science";
+        await existingLecturer.save();
+        console.log("Updated existing Lecturer with Computer Science department.");
+      } else {
+        console.log("Lecturer already exists and has department.");
+      }
+    }
+
+    // Seed default departments with custom level lists
+    console.log("Seeding default departments...");
+    const defaultDepts = [
+      { name: "Computer Science", code: "CSC", levels: ["100", "200", "300", "400"] },
+      { name: "Software Engineering", code: "SEN", levels: ["100", "200", "300", "400"] },
+      { name: "Nursing", code: "NUR", levels: ["100", "200", "300", "400", "500"] },
+      { name: "Medicine", code: "MED", levels: ["100", "200", "300", "400", "500", "600"] }
+    ];
+
+    for (const d of defaultDepts) {
+      const existingDept = await Department.findOne({ code: d.code });
+      if (!existingDept) {
+        const newDept = new Department(d);
+        await newDept.save();
+        console.log(`Seeded department: ${d.name} (${d.code})`);
+      } else {
+        // Ensure levels are updated to match in case of modifications
+        existingDept.levels = d.levels;
+        await existingDept.save();
+        console.log(`Verified levels for department: ${d.name}`);
+      }
     }
 
     console.log("-----------------------------------------");
-    console.log("Default Accounts Check/Seeding Completed!");
+    console.log("Default Accounts & Departments Seeding Completed!");
     console.log(`1. Admin: admin@studysync.com | password: AdminPassword2026`);
-    console.log(`2. HOD: hod@studysync.com | password: HodPassword2026`);
-    console.log(`3. Lecturer: lecturer@studysync.com | password: LecturerPassword2026`);
+    console.log(`2. HOD: hod@studysync.com | password: HodPassword2026 (Computer Science)`);
+    console.log(`3. Lecturer: lecturer@studysync.com | password: LecturerPassword2026 (Computer Science)`);
     console.log("-----------------------------------------");
 
     process.exit(0);
