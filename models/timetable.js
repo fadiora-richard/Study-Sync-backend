@@ -10,6 +10,7 @@ const timetableSchema = new mongoose.Schema({
       endTime: { type: String, required: true }, // "09:30"
       subject: { type: String, required: true },
       location: String,
+      lecturerClassId: { type: mongoose.Schema.Types.ObjectId, ref: "ClassSchedule", required: false },
     },
   ],
   createdAt: { type: Date, default: Date.now },

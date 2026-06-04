@@ -195,7 +195,7 @@ router.post("/transfer-rep", auth, requireRole(["admin", "hod", "lecturer"]), as
       return res.status(404).json({ error: "Target student not found or invalid role." });
     }
 
-    if (newRep.repId.toString() !== oldRepId.toString()) {
+    if (!newRep.repId || newRep.repId.toString() !== oldRepId.toString()) {
       return res.status(400).json({ error: "Target student does not belong to the representative's group." });
     }
 

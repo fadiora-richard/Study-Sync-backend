@@ -15,6 +15,8 @@ import announcementRoutes from "./routes/announcements.js";
 import reportRoutes from "./routes/reports.js";
 import courseRoutes from "./routes/courses.js";
 import attendanceRoutes from "./routes/attendance.js";
+import scheduleRoutes from "./routes/schedules.js";
+import departmentRoutes from "./routes/department.js";
 import { scheduleAllUpcomingDeadlines } from './services/scheduler.js';
 
 const app = express();
@@ -40,6 +42,8 @@ const PORT = process.env.PORT || 3000;
     app.use('/push', pushRoutes);
     app.use('/courses', courseRoutes);
     app.use('/attendance', attendanceRoutes);
+    app.use('/schedules', scheduleRoutes);
+    app.use('/department', departmentRoutes);
 
     app.get('/', (req, res) => res.json({ message: 'StudySync backend API is fully functional.' }));
 

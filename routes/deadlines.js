@@ -3,7 +3,7 @@ import Deadline from "../models/deadline.js";
 import User from "../models/user.js";
 import Course from "../models/course.js";
 import { auth, requireRole } from "../middleware/auth.js";
-import { scheduleDeadlineNotifications } from "../services/scheduler.js";
+import { scheduleDeadlineNotifications, cancelDeadlineNotifications } from "../services/scheduler.js";
 
 const router = express.Router();
 
@@ -140,6 +140,7 @@ router.delete("/:id", auth, requireRole(["rep", "lecturer", "hod"]), async (req,
     }
 
     await Deadline.findByIdAndDelete(req.params.id);
+    cancelDeadlineNotifications(req.params.id);
     res.json({ message: "Deadline deleted successfully" });
   } catch (err) {
     console.error("Delete deadline error:", err);
@@ -164,7 +165,8 @@ router.post("/complete", auth, async (req, res) => {
     if (!user)
       return res.status(404).json({ error: "User not found" });
 
-    if (!user.completedDeadlines.includes(deadlineId)) {
+    if (!user.completedDeadlines || !user.completedDeadlines.some(id => id.toString() === deadlineId.toString())) {
+      if (!user.completedDeadlines) user.completedDeadlines = [];
       user.completedDeadlines.push(deadlineId);
     }
 

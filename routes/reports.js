@@ -85,8 +85,16 @@ router.get("/rep", auth, requireRole("rep"), async (req, res) => {
 // GET /reports/lecturer — view escalated reports related to lecturer's courses
 router.get("/lecturer", auth, requireRole(["lecturer", "hod"]), async (req, res) => {
   try {
-    // 1. Find all courses taught by this lecturer
-    const courses = await Course.find({ lecturerId: req.user._id });
+    // 1. Find all relevant courses
+    let courses;
+    if (req.user.role === "hod" && req.user.department) {
+      // Find all lecturers/HODs in the same department
+      const lecturers = await User.find({ department: req.user.department, role: { $in: ["lecturer", "hod"] } });
+      const lecturerIds = lecturers.map(l => l._id);
+      courses = await Course.find({ lecturerId: { $in: lecturerIds } });
+    } else {
+      courses = await Course.find({ lecturerId: req.user._id });
+    }
     const courseIds = courses.map(c => c._id);
 
     // 2. Fetch escalated reports for these courses
@@ -117,6 +125,10 @@ router.post("/:id/escalate", auth, async (req, res) => {
     const isRep = report.repId.toString() === req.user._id.toString();
     if (!isOwner && !isRep && req.user.role !== 'admin') {
       return res.status(403).json({ error: "Forbidden" });
+    }
+
+    if (req.body.courseId) {
+      report.courseId = req.body.courseId;
     }
 
     report.status = "escalated";

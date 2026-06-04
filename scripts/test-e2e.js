@@ -1,9 +1,4 @@
-import mongoose from 'mongoose';
 import dotenv from 'dotenv';
-import User from '../models/user.js';
-import Course from '../models/course.js';
-import AttendanceSession from '../models/attendanceSession.js';
-import AttendanceRecord from '../models/attendanceRecord.js';
 
 dotenv.config();
 
@@ -11,6 +6,14 @@ const API_URL = 'http://localhost:3000';
 
 async function runTests() {
   console.log('=== Starting E2E Verification Tests ===');
+  
+  // Randomize credentials to prevent database email/matric collision
+  const suffix = Math.random().toString(36).substring(2, 8);
+  const repEmail = `rep-${suffix}@studysync.com`;
+  const repMatric = `REPMAT-${suffix.toUpperCase()}`;
+  const studentEmail = `student-${suffix}@studysync.com`;
+  const studentMatric = `STUDMAT-${suffix.toUpperCase()}`;
+
   let repInviteCode = '';
   let repId = '';
   let studentId = '';
@@ -23,14 +26,14 @@ async function runTests() {
 
   try {
     // 1. Sign up Rep
-    console.log('\n[Step 1] Signing up new Class Representative...');
+    console.log(`\n[Step 1] Signing up new Class Representative (${repEmail})...`);
     const repSignupRes = await fetch(`${API_URL}/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Test Representative',
-        email: 'testrep@studysync.com',
-        matric: 'TESTREP001',
+        email: repEmail,
+        matric: repMatric,
         password: 'Password123',
         role: 'rep',
         signupKey: 'StudySyncRep2026'
@@ -43,21 +46,15 @@ async function runTests() {
     console.log('✔ Rep Signup Success:', repSignupData);
     repInviteCode = repSignupData.inviteCode;
 
-    // Retrieve Rep ID
-    await mongoose.connect(process.env.MONGODB_URI);
-    const repUser = await User.findOne({ email: 'testrep@studysync.com' });
-    repId = repUser._id.toString();
-    console.log(`✔ Rep MongoDB ID: ${repId}, Invite Code: ${repInviteCode}`);
-
     // 2. Sign up Student
-    console.log('\n[Step 2] Signing up new Student using Rep invite code...');
+    console.log(`\n[Step 2] Signing up new Student (${studentEmail}) using Rep invite code...`);
     const studentSignupRes = await fetch(`${API_URL}/auth/signup`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: 'Test Student',
-        email: 'teststudent@studysync.com',
-        matric: 'TESTSTUDENT001',
+        email: studentEmail,
+        matric: studentMatric,
         password: 'Password123',
         role: 'student',
         inviteCode: repInviteCode
@@ -68,10 +65,6 @@ async function runTests() {
       throw new Error(`Student Signup failed: ${JSON.stringify(studentSignupData)}`);
     }
     console.log('✔ Student Signup Success:', studentSignupData);
-    
-    const studentUser = await User.findOne({ matric: 'TESTSTUDENT001' });
-    studentId = studentUser._id.toString();
-    console.log(`✔ Student MongoDB ID: ${studentId}`);
 
     // 3. Try Login as Student (should fail with 403)
     console.log('\n[Step 3] Trying to login as student before approval (should fail)...');
@@ -79,7 +72,7 @@ async function runTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        identifier: 'TESTSTUDENT001',
+        identifier: studentMatric,
         password: 'Password123'
       })
     });
@@ -97,7 +90,7 @@ async function runTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        identifier: 'testrep@studysync.com',
+        identifier: repEmail,
         password: 'Password123'
       })
     });
@@ -106,10 +99,27 @@ async function runTests() {
       throw new Error(`Rep Login failed: ${JSON.stringify(repLoginData)}`);
     }
     repToken = repLoginData.token;
-    console.log('✔ Rep login success. Token length:', repToken.length);
+    repId = repLoginData.userId;
+    console.log(`✔ Rep login success. Token length: ${repToken.length}, Rep ID: ${repId}`);
 
     // 5. Approve Student as Rep
     console.log('\n[Step 5] Approving student as Representative...');
+    // Get student list first to obtain studentId
+    const studentsRes = await fetch(`${API_URL}/students`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${repToken}` }
+    });
+    const studentsData = await studentsRes.json();
+    if (!studentsRes.ok) {
+      throw new Error(`Failed to fetch representative's student roster: ${JSON.stringify(studentsData)}`);
+    }
+    const targetStudent = studentsData.find(s => s.matric === studentMatric);
+    if (!targetStudent) {
+      throw new Error("Test student not found in representative's roster.");
+    }
+    studentId = targetStudent._id;
+    console.log(`✔ Found Student MongoDB ID: ${studentId}`);
+
     const approveRes = await fetch(`${API_URL}/students/${studentId}/approve`, {
       method: 'PATCH',
       headers: { 
@@ -129,7 +139,7 @@ async function runTests() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        identifier: 'TESTSTUDENT001',
+        identifier: studentMatric,
         password: 'Password123'
       })
     });
@@ -167,7 +177,7 @@ async function runTests() {
         'Authorization': `Bearer ${lecturerToken}` 
       },
       body: JSON.stringify({
-        code: 'CSC-TEST-E2E',
+        code: `CSC-E2E-${suffix.toUpperCase()}`,
         name: 'Introduction to E2E Testing',
         repId: repId
       })
@@ -294,18 +304,42 @@ async function runTests() {
   } catch (error) {
     console.error('❌ Test failed with error:', error.message);
   } finally {
-    // Cleanup Database
-    console.log('\nCleaning up test data from Database...');
+    // Cleanup Database purely via REST API
+    console.log('\nCleaning up test data via HTTP APIs...');
     try {
-      if (mongoose.connection.readyState !== 0) {
-        await User.deleteMany({ email: { $in: ['testrep@studysync.com', 'teststudent@studysync.com'] } });
-        await Course.deleteMany({ code: 'CSC-TEST-E2E' });
-        if (courseId) {
-          await AttendanceSession.deleteMany({ courseId });
-          await AttendanceRecord.deleteMany({ courseId });
-        }
-        console.log('✔ Database Cleaned Up Successfully.');
+      if (courseId && lecturerToken) {
+        console.log('Cascade deleting Course and attendance records...');
+        const courseDelRes = await fetch(`${API_URL}/courses/${courseId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${lecturerToken}` }
+        });
+        console.log(`Course delete response status: ${courseDelRes.status}`);
       }
+
+      if (repId) {
+        console.log('Logging in as Admin to clean up representative and students...');
+        const adminLoginRes = await fetch(`${API_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identifier: 'admin@studysync.com',
+            password: 'AdminPassword2026'
+          })
+        });
+        if (adminLoginRes.ok) {
+          const adminLoginData = await adminLoginRes.json();
+          const adminToken = adminLoginData.token;
+          
+          const repDelRes = await fetch(`${API_URL}/admin/reps/${repId}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${adminToken}` }
+          });
+          console.log(`Representative delete response status: ${repDelRes.status}`);
+        } else {
+          console.error('Failed to log in as Admin for cleanup.');
+        }
+      }
+      console.log('✔ Database Cleaned Up Successfully.');
     } catch (err) {
       console.error('Failed to cleanup database:', err);
     }
