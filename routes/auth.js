@@ -81,12 +81,17 @@ router.post('/signup', async (req, res) => {
 
     let userRepId = undefined;
     let userInviteCode = undefined;
+    let userDepartment = undefined;
+    let userLevel = undefined;
 
     if (role === 'rep') {
       const correctKey = process.env.REP_SIGNUP_KEY || 'StudySyncRep2026';
       if (!signupKey || signupKey !== correctKey) {
         return res.status(403).json({ message: "Invalid or missing Representative Signup Key." });
       }
+
+      userDepartment = req.body.department;
+      userLevel = req.body.level;
 
       // Generate unique invite code
       let unique = false;
@@ -107,6 +112,9 @@ router.post('/signup', async (req, res) => {
       }
 
       userRepId = rep._id;
+      // Inherit department and level from representative
+      userDepartment = rep.department;
+      userLevel = rep.level;
     } else {
       return res.status(400).json({ message: "Invalid role specified." });
     }
@@ -121,7 +129,9 @@ router.post('/signup', async (req, res) => {
       passwordHash,
       role,
       repId: userRepId,
-      inviteCode: userInviteCode
+      inviteCode: userInviteCode,
+      department: userDepartment,
+      level: userLevel
     });
 
     await newUser.save();

@@ -76,7 +76,9 @@ router.post("/", auth, requireRole("rep"), async (req, res) => {
       role: "student",
       repId: repId,
       isApproved: true, // Manually registered students are approved by default
-      approvedAt: new Date()
+      approvedAt: new Date(),
+      department: req.user.department,
+      level: req.user.level
     });
 
     await student.save();
