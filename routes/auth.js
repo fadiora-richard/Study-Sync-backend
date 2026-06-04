@@ -21,6 +21,10 @@ router.post('/login', async (req, res) => {
     if (!ok) return res.status(400).json({ message: 'Invalid credentials' });
 
     // Enforce account approval check
+    if (user.isRejected === true) {
+      return res.status(403).json({ message: 'Your account registration has been rejected' });
+    }
+
     if (user.isApproved === false) {
       return res.status(403).json({ message: 'Your account is awaiting approval' });
     }
@@ -55,12 +59,24 @@ router.post('/signup', async (req, res) => {
         return res.status(400).json({ message: "Invalid email address format." });
       }
       const emailExists = await User.findOne({ email: cleanEmail });
-      if (emailExists) return res.status(400).json({ message: "Email already in use." });
+      if (emailExists) {
+        if (emailExists.isRejected) {
+          await User.deleteOne({ _id: emailExists._id });
+        } else {
+          return res.status(400).json({ message: "Email already in use." });
+        }
+      }
     }
 
     if (cleanMatric) {
       const matricExists = await User.findOne({ matric: cleanMatric });
-      if (matricExists) return res.status(400).json({ message: "Matric number already in use." });
+      if (matricExists) {
+        if (matricExists.isRejected) {
+          await User.deleteOne({ _id: matricExists._id });
+        } else {
+          return res.status(400).json({ message: "Matric number already in use." });
+        }
+      }
     }
 
     let userRepId = undefined;
