@@ -2,6 +2,7 @@ import express from "express";
 import User from "../models/user.js";
 import Course from "../models/course.js";
 import Report from "../models/report.js";
+import Settings from "../models/settings.js";
 import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -24,13 +25,18 @@ router.post("/", auth, async (req, res) => {
     const rep = await User.findById(repId);
     if (!rep) return res.status(404).json({ error: "Representative not found." });
 
+    let activeSemester = "semester1";
+    const setting = await Settings.findOne({ key: "currentSemester" });
+    if (setting) activeSemester = setting.value;
+
     // Create Report document
     const report = new Report({
       studentId: student._id,
       repId,
       courseId: courseId || undefined,
       message,
-      status: 'pending'
+      status: 'pending',
+      semester: activeSemester
     });
 
     await report.save();

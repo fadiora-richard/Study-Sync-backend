@@ -1,6 +1,7 @@
 import express from "express";
 import Announcement from "../models/announcement.js";
 import Course from "../models/course.js";
+import Settings from "../models/settings.js";
 import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -54,6 +55,10 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
       return res.status(400).json({ error: "repId or courseId is required to identify the target student group(s)." });
     }
 
+    let activeSemester = "semester1";
+    const setting = await Settings.findOne({ key: "currentSemester" });
+    if (setting) activeSemester = setting.value;
+
     const announcements = [];
     for (const rId of targetRepIds) {
       const announcement = new Announcement({
@@ -61,7 +66,8 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
         courseId,
         authorId: req.user._id,
         title,
-        message
+        message,
+        semester: activeSemester
       });
       await announcement.save();
       announcements.push(announcement);

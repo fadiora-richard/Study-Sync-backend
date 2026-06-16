@@ -10,6 +10,7 @@ const classScheduleSchema = new mongoose.Schema({
   repIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }], // Target cohorts
   department: { type: String, required: false },
   level: { type: String, required: false },
+  semester: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
 

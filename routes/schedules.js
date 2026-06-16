@@ -3,6 +3,7 @@ import ClassSchedule from "../models/classSchedule.js";
 import Course from "../models/course.js";
 import Timetable from "../models/timetable.js";
 import User from "../models/user.js";
+import Settings from "../models/settings.js";
 import { auth, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -48,6 +49,10 @@ router.post("/", auth, requireRole(["lecturer", "hod"]), async (req, res) => {
       return res.status(400).json({ error: "No target representative groups selected or found matching the criteria." });
     }
 
+    let activeSemester = "semester1";
+    const setting = await Settings.findOne({ key: "currentSemester" });
+    if (setting) activeSemester = setting.value;
+
     const schedule = new ClassSchedule({
       courseId,
       lecturerId: req.user._id,
@@ -57,7 +62,8 @@ router.post("/", auth, requireRole(["lecturer", "hod"]), async (req, res) => {
       location,
       repIds: finalRepIds,
       department,
-      level
+      level,
+      semester: activeSemester
     });
 
     await schedule.save();
@@ -65,11 +71,11 @@ router.post("/", auth, requireRole(["lecturer", "hod"]), async (req, res) => {
     // Sync to each representative's timetable
     const subject = getSubjectName(course);
     for (const repId of finalRepIds) {
-      let timetable = await Timetable.findOne({ repId, semester: "semester1" });
+      let timetable = await Timetable.findOne({ repId, semester: activeSemester });
       if (!timetable) {
         timetable = new Timetable({
           repId,
-          semester: "semester1",
+          semester: activeSemester,
           entries: []
         });
       }
@@ -157,11 +163,13 @@ router.patch("/:id", auth, requireRole(["lecturer", "hod"]), async (req, res) =>
     const course = await Course.findById(schedule.courseId);
     const subject = getSubjectName(course);
 
+    const activeSemester = schedule.semester || "semester1";
+
     // Sync changes to representative timetables
     // 1. Remove entries from reps who are no longer targeted
     const removedRepIds = oldRepIds.filter(id => !finalRepIds.includes(id));
     for (const repId of removedRepIds) {
-      const timetable = await Timetable.findOne({ repId, semester: "semester1" });
+      const timetable = await Timetable.findOne({ repId, semester: activeSemester });
       if (timetable) {
         timetable.entries = timetable.entries.filter(
           entry => !entry.lecturerClassId || entry.lecturerClassId.toString() !== schedule._id.toString()
@@ -172,11 +180,11 @@ router.patch("/:id", auth, requireRole(["lecturer", "hod"]), async (req, res) =>
 
     // 2. Update or Add entries for targeted reps
     for (const repId of finalRepIds) {
-      let timetable = await Timetable.findOne({ repId, semester: "semester1" });
+      let timetable = await Timetable.findOne({ repId, semester: activeSemester });
       if (!timetable) {
         timetable = new Timetable({
           repId,
-          semester: "semester1",
+          semester: activeSemester,
           entries: []
         });
       }
@@ -230,9 +238,10 @@ router.delete("/:id", auth, requireRole(["lecturer", "hod"]), async (req, res) =
     }
 
     // Delete schedule copies from representatives' timetables
+    const activeSemester = schedule.semester || "semester1";
     const repIds = schedule.repIds.map(id => id.toString());
     for (const repId of repIds) {
-      const timetable = await Timetable.findOne({ repId, semester: "semester1" });
+      const timetable = await Timetable.findOne({ repId, semester: activeSemester });
       if (timetable) {
         timetable.entries = timetable.entries.filter(
           entry => !entry.lecturerClassId || entry.lecturerClassId.toString() !== schedule._id.toString()
