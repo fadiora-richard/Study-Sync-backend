@@ -20,6 +20,7 @@ const deadlineSchema = new mongoose.Schema({
     ref: "User",
     required: false
   },
+  semester: { type: String, required: true, default: "semester1" },
 
   createdAt: { type: Date, default: Date.now }
 });

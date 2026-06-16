@@ -6,7 +6,8 @@ const announcementSchema = new mongoose.Schema({
   authorId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: false },
   title: { type: String, required: true },
   message: { type: String, required: true },
+  semester: { type: String, required: true, default: "semester1" },
   createdAt: { type: Date, default: Date.now },
 });
 
-export default mongoose.model("Announcement", announcementSchema);
+export default mongoose.models.Announcement || mongoose.model("Announcement", announcementSchema);

@@ -2,6 +2,7 @@ import express from "express";
 import Deadline from "../models/deadline.js";
 import User from "../models/user.js";
 import Course from "../models/course.js";
+import Settings from "../models/settings.js";
 import { auth, requireRole } from "../middleware/auth.js";
 import { scheduleDeadlineNotifications, cancelDeadlineNotifications } from "../services/scheduler.js";
 
@@ -47,6 +48,10 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
       return res.status(400).json({ error: "repId or courseId is required to identify the target student group(s)." });
     }
 
+    let activeSemester = "semester1";
+    const setting = await Settings.findOne({ key: "currentSemester" });
+    if (setting) activeSemester = setting.value;
+
     const deadlines = [];
     for (const rId of targetRepIds) {
       const newDeadline = new Deadline({
@@ -55,7 +60,8 @@ router.post("/", auth, requireRole(["rep", "lecturer", "hod"]), async (req, res)
         dueDate,
         repId: rId,
         courseId,
-        authorId: req.user._id
+        authorId: req.user._id,
+        semester: activeSemester
       });
       await newDeadline.save();
 

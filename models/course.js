@@ -10,6 +10,7 @@ const courseSchema = new mongoose.Schema({
   reinstatedStudents: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Overridden exclusion students
   department: { type: String, required: false },
   level: { type: String, required: false },
+  semester: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
 });
 

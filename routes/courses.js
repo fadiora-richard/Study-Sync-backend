@@ -1,6 +1,7 @@
 import express from 'express';
 import Course from '../models/course.js';
 import User from '../models/user.js';
+import Settings from '../models/settings.js';
 import AttendanceSession from '../models/attendanceSession.js';
 import AttendanceRecord from '../models/attendanceRecord.js';
 import { auth, requireRole } from '../middleware/auth.js';
@@ -50,12 +51,17 @@ router.post('/', auth, requireRole(['lecturer', 'hod']), async (req, res) => {
       return res.status(400).json({ error: 'One or more of the selected representatives are already assigned to this course code under your account.' });
     }
 
+    let activeSemester = 'semester1';
+    const setting = await Settings.findOne({ key: 'currentSemester' });
+    if (setting) activeSemester = setting.value;
+
     const course = new Course({
       code: code.trim().toUpperCase(),
       name: name.trim(),
       lecturerId: req.user._id,
       repId: finalRepIds[0], // for legacy single rep query support
-      repIds: finalRepIds
+      repIds: finalRepIds,
+      semester: activeSemester
     });
 
     await course.save();
