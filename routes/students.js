@@ -145,19 +145,7 @@ router.patch("/:id/reject", auth, requireRole("rep"), async (req, res) => {
 router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
   try {
     const { name, email, matric } = req.body;
-    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
     const cleanMatric = matric ? matric.toUpperCase().trim() : undefined;
-
-    if (cleanEmail) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email address format." });
-      }
-      const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: req.params.id } });
-      if (existingEmail) {
-        return res.status(400).json({ error: "Email already in use." });
-      }
-    }
 
     if (cleanMatric) {
       const existingMatric = await User.findOne({ matric: cleanMatric, _id: { $ne: req.params.id } });
@@ -177,8 +165,24 @@ router.patch("/:id", auth, requireRole("rep"), async (req, res) => {
     }
 
     student.name = name || student.name;
-    if (cleanEmail !== undefined) student.email = cleanEmail;
     if (cleanMatric !== undefined) student.matric = cleanMatric;
+
+    if (email !== undefined) {
+      if (email === "" || email === null) {
+        student.email = undefined;
+      } else {
+        const cleanEmail = email.toLowerCase().trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return res.status(400).json({ error: "Invalid email address format." });
+        }
+        const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: req.params.id } });
+        if (existingEmail) {
+          return res.status(400).json({ error: "Email already in use." });
+        }
+        student.email = cleanEmail;
+      }
+    }
 
     await student.save();
     

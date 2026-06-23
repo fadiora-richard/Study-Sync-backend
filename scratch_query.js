@@ -6,13 +6,26 @@ import User from './models/user.js';
 dotenv.config();
 
 const run = async () => {
-  await connectDB(process.env.MONGODB_URI);
-  const users = await User.find({});
-  console.log("Total users in database:", users.length);
-  users.forEach(u => {
-    console.log(`- Name: ${u.name}, Role: ${u.role}, Email: ${u.email}, Matric: ${u.matric}, inviteCode: ${u.inviteCode}, repId: ${u.repId}`);
-  });
-  process.exit(0);
+  try {
+    await connectDB(process.env.MONGODB_URI);
+    
+    console.log("Dropping index email_1...");
+    await User.collection.dropIndex('email_1');
+    console.log("Dropped successfully.");
+
+    // Re-sync indexes (optional, mongoose can recreate them on model compilation/connection)
+    console.log("Rebuilding indexes...");
+    await User.createIndexes();
+    console.log("Indexes rebuilt.");
+
+    const indexes = await User.collection.indexes();
+    console.log("Updated indexes:", JSON.stringify(indexes, null, 2));
+
+  } catch (error) {
+    console.error("Error occurred:", error);
+  } finally {
+    process.exit(0);
+  }
 };
 
 run();

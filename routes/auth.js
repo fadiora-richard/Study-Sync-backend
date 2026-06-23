@@ -2,6 +2,7 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import User from '../models/user.js';
+import Settings from '../models/settings.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -85,7 +86,8 @@ router.post('/signup', async (req, res) => {
     let userLevel = undefined;
 
     if (role === 'rep') {
-      const correctKey = process.env.REP_SIGNUP_KEY || 'StudySyncRep2026';
+      let inviteCodeSetting = await Settings.findOne({ key: "repInviteCode" });
+      const correctKey = inviteCodeSetting ? inviteCodeSetting.value : (process.env.REP_SIGNUP_KEY || 'StudySyncRep2026');
       if (!signupKey || signupKey !== correctKey) {
         return res.status(403).json({ message: "Invalid or missing Representative Signup Key." });
       }

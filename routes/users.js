@@ -76,23 +76,28 @@ router.patch("/:id", auth, async (req, res) => {
     }
 
     const { name, email, groupDescription } = req.body;
-    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
-    if (cleanEmail) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email address format." });
-      }
-      const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: req.params.id } });
-      if (existingEmail) {
-        return res.status(400).json({ error: "Email already in use." });
-      }
-    }
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
 
     if (name) user.name = name;
-    if (cleanEmail) user.email = cleanEmail;
     if (groupDescription !== undefined) user.groupDescription = groupDescription;
+
+    if (email !== undefined) {
+      if (email === "" || email === null) {
+        user.email = undefined;
+      } else {
+        const cleanEmail = email.toLowerCase().trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return res.status(400).json({ error: "Invalid email address format." });
+        }
+        const existingEmail = await User.findOne({ email: cleanEmail, _id: { $ne: req.params.id } });
+        if (existingEmail) {
+          return res.status(400).json({ error: "Email already in use." });
+        }
+        user.email = cleanEmail;
+      }
+    }
 
     await user.save();
 

@@ -96,6 +96,30 @@ const seedAdmin = async () => {
       }
     }
 
+    // Seed Representative if not exists
+    const repEmail = "rep@studysync.com";
+    const existingRep = await User.findOne({ email: repEmail });
+    if (!existingRep) {
+      console.log("Seeding default Representative...");
+      const repPasswordHash = await bcrypt.hash("RepPassword2026", salt);
+      const defaultRep = new User({
+        name: "Richard Fadiora",
+        email: repEmail,
+        matric: "CSC-REP-01",
+        passwordHash: repPasswordHash,
+        role: "rep",
+        department: "Computer Science",
+        level: "200",
+        groupDescription: "Computer Science Year 2",
+        inviteCode: "SYNC-CS20",
+        isApproved: true
+      });
+      await defaultRep.save();
+      console.log("Representative seeded.");
+    } else {
+      console.log("Representative already exists.");
+    }
+
     // Seed default departments with custom level lists
     console.log("Seeding default departments...");
     const defaultDepts = [
@@ -124,6 +148,7 @@ const seedAdmin = async () => {
     console.log(`1. Admin: admin@studysync.com | password: AdminPassword2026`);
     console.log(`2. HOD: hod@studysync.com | password: HodPassword2026 (Computer Science)`);
     console.log(`3. Lecturer: lecturer@studysync.com | password: LecturerPassword2026 (Computer Science)`);
+    console.log(`4. Representative: rep@studysync.com | password: RepPassword2026 (Computer Science Level 200, inviteCode: SYNC-CS20)`);
     console.log("-----------------------------------------");
 
     process.exit(0);

@@ -337,7 +337,7 @@ router.get("/rep/reports", auth, requireRole("rep"), async (req, res) => {
     const data = reports.map(r => ({
       studentName: r.studentId ? r.studentId.name : "Unknown Student",
       studentMatric: r.studentId ? r.studentId.matric : "N/A",
-      studentEmail: r.studentId ? r.studentId.email : "N/A",
+      studentEmail: (r.studentId && r.studentId.email) ? r.studentId.email : "N/A",
       course: r.courseId ? `${r.courseId.code} - ${r.courseId.name}` : "General",
       message: r.message,
       status: r.status,

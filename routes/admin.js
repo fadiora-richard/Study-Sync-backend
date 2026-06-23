@@ -55,22 +55,24 @@ router.post("/create-rep", auth, requireRole(["admin", "hod", "lecturer"]), asyn
   try {
     const { name, email, matric, password, department } = req.body;
 
-    if (!name || !email || !matric || !password) {
-      return res.status(400).json({ error: "All fields are required" });
+    if (!name || !matric || !password) {
+      return res.status(400).json({ error: "Name, matric, and password are required" });
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
     const cleanMatric = matric.toUpperCase().trim();
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(cleanEmail)) {
-      return res.status(400).json({ error: "Invalid email address format." });
-    }
+    if (cleanEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return res.status(400).json({ error: "Invalid email address format." });
+      }
 
-    // Check if email already exists
-    const existing = await User.findOne({ email: cleanEmail });
-    if (existing) {
-      return res.status(400).json({ error: "Email already in use" });
+      // Check if email already exists
+      const existing = await User.findOne({ email: cleanEmail });
+      if (existing) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
     }
 
     // Check if matric number already exists
@@ -305,26 +307,33 @@ router.post("/create-lecturer", auth, requireRole("admin"), async (req, res) => 
   try {
     const { name, email, matric, password, role, department } = req.body;
 
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({ error: "Name, email, password, and role are required" });
+    if (!name || !password || !role) {
+      return res.status(400).json({ error: "Name, password, and role are required" });
     }
 
     if (role !== "lecturer" && role !== "hod") {
       return res.status(400).json({ error: "Invalid role. Role must be lecturer or hod." });
     }
 
-    const cleanEmail = email.toLowerCase().trim();
+    const cleanEmail = email ? email.toLowerCase().trim() : undefined;
     const cleanMatric = matric ? matric.toUpperCase().trim() : undefined;
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(cleanEmail)) {
-      return res.status(400).json({ error: "Invalid email address format." });
+    // A lecturer/HOD needs either an email or a matric (Staff ID) to login
+    if (!cleanEmail && !cleanMatric) {
+      return res.status(400).json({ error: "Either email or Staff ID (matric) must be provided" });
     }
 
-    // Check if email already exists
-    const existing = await User.findOne({ email: cleanEmail });
-    if (existing) {
-      return res.status(400).json({ error: "Email already in use" });
+    if (cleanEmail) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(cleanEmail)) {
+        return res.status(400).json({ error: "Invalid email address format." });
+      }
+
+      // Check if email already exists
+      const existing = await User.findOne({ email: cleanEmail });
+      if (existing) {
+        return res.status(400).json({ error: "Email already in use" });
+      }
     }
 
     // Check if matric/staff ID already exists (if provided)
@@ -493,17 +502,21 @@ router.patch("/users/:id", auth, requireRole("admin"), async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    if (email) {
-      const cleanEmail = email.toLowerCase().trim();
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(cleanEmail)) {
-        return res.status(400).json({ error: "Invalid email address format." });
+    if (email !== undefined) {
+      if (email === "" || email === null) {
+        user.email = undefined;
+      } else {
+        const cleanEmail = email.toLowerCase().trim();
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(cleanEmail)) {
+          return res.status(400).json({ error: "Invalid email address format." });
+        }
+        const existing = await User.findOne({ email: cleanEmail, _id: { $ne: id } });
+        if (existing) {
+          return res.status(400).json({ error: "Email already in use." });
+        }
+        user.email = cleanEmail;
       }
-      const existing = await User.findOne({ email: cleanEmail, _id: { $ne: id } });
-      if (existing) {
-        return res.status(400).json({ error: "Email already in use." });
-      }
-      user.email = cleanEmail;
     }
 
     if (matric !== undefined) {
